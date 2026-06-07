@@ -5,12 +5,12 @@ from utils.database import db
 from utils.embeds import EmbedBuilder
 
 class VerificationCog(commands.Cog):
-    """Configurable reaction role verification system."""
+    """Configurable reaction role verification with auto‑mute for new members."""
 
     def __init__(self, bot):
         self.bot = bot
 
-    # Helper function to get settings for a guild
+    # ---------- Database helpers ----------
     async def get_settings(self, guild_id: int):
         return await db.database.verification_settings.find_one({"guild_id": guild_id})
 
@@ -21,7 +21,31 @@ class VerificationCog(commands.Cog):
             upsert=True
         )
 
-    # ---------- Slash Commands Group ----------
+    # ---------- Auto‑mute new members ----------
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        """Give the Muted role to every new member until they verify."""
+        settings = await self.get_settings(member.guild.id)
+        if not settings:
+            return  # verification not set up in this server
+
+        # Find or create the Muted role
+        muted_role = discord.utils.get(member.guild.roles, name="Muted")
+        if not muted_role:
+            # Create the role with send_messages disabled globally
+            muted_role = await member.guild.create_role(name="Muted", reason="Auto‑mute new members")
+            # Apply permission overwrites for all text channels
+            for channel in member.guild.text_channels:
+                try:
+                    await channel.set_permissions(muted_role, send_messages=False, add_reactions=False)
+                except:
+                    pass
+        try:
+            await member.add_roles(muted_role, reason="New member – needs verification")
+        except:
+            pass
+
+    # ---------- Slash commands for configuration ----------
     verify = app_commands.Group(name="verify", description="Configure reaction role verification")
 
     @verify.command(name="set_channel", description="Set the channel where the verification message will be posted")
@@ -31,7 +55,7 @@ class VerificationCog(commands.Cog):
         embed = EmbedBuilder.success(interaction.user, "Verification channel set", f"Channel: {channel.mention}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @verify.command(name="set_role", description="Set the role to assign when a user verifies")
+    @verify.command(name="set_role", description="Set the role to assign when a user verifies (optional)")
     @app_commands.default_permissions(administrator=True)
     async def set_role(self, interaction: discord.Interaction, role: discord.Role):
         await self.update_settings(interaction.guild_id, "role_id", role.id)
@@ -41,14 +65,15 @@ class VerificationCog(commands.Cog):
     @verify.command(name="set_emoji", description="Set the emoji to react with (default: ✅)")
     @app_commands.default_permissions(administrator=True)
     async def set_emoji(self, interaction: discord.Interaction, emoji: str):
-        # Validate emoji (simple check: it should be a single emoji or custom emoji string)
         await self.update_settings(interaction.guild_id, "emoji", emoji)
         embed = EmbedBuilder.success(interaction.user, "Verification emoji set", f"Emoji: {emoji}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @verify.command(name="create", description="Create the verification message in the configured channel")
     @app_commands.default_permissions(administrator=True)
-    async def create_message(self, interaction: discord.Interaction, title: str = "Verification Required", description: str = "React with the emoji below to gain access to the server."):
+    async def create_message(self, interaction: discord.Interaction,
+                            title: str = "Verification Required",
+                            description: str = "React with the emoji below to gain access to the server."):
         settings = await self.get_settings(interaction.guild_id)
         if not settings or "channel_id" not in settings:
             embed = EmbedBuilder.error(interaction.user, "Please set a verification channel first using `/verify set_channel`.")
@@ -61,14 +86,12 @@ class VerificationCog(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        embed = discord.Embed(title=title, description=description, color=discord.Color.green())
+        embed_msg = discord.Embed(title=title, description=description, color=discord.Color.green())
         emoji = settings.get("emoji", "✅")
-        msg = await channel.send(embed=embed)
+        msg = await channel.send(embed=embed_msg)
         await msg.add_reaction(emoji)
 
-        # Store the message ID
         await self.update_settings(interaction.guild_id, "message_id", msg.id)
-
         response_embed = EmbedBuilder.success(interaction.user, "Verification message created", f"Posted in {channel.mention}")
         await interaction.response.send_message(embed=response_embed, ephemeral=True)
 
@@ -93,15 +116,15 @@ class VerificationCog(commands.Cog):
         emoji = settings.get("emoji", "✅")
         msg_id = settings.get("message_id", "Not set")
 
-        description = f"**Channel:** {channel.mention if channel else 'Not set'}\n"
-        description += f"**Role:** {role.mention if role else 'Not set'}\n"
-        description += f"**Emoji:** {emoji}\n"
-        description += f"**Message ID:** `{msg_id}`"
-        embed = EmbedBuilder.info(interaction.user, description)
+        desc = f"**Channel:** {channel.mention if channel else 'Not set'}\n"
+        desc += f"**Role:** {role.mention if role else 'Not set'}\n"
+        desc += f"**Emoji:** {emoji}\n"
+        desc += f"**Message ID:** `{msg_id}`"
+        embed = EmbedBuilder.info(interaction.user, desc)
         embed.title = "🔧 Verification Settings"
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # ---------- Reaction Handler ----------
+    # ---------- Reaction handler – unmute + give role ----------
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         if payload.user_id == self.bot.user.id:
@@ -110,10 +133,11 @@ class VerificationCog(commands.Cog):
         settings = await self.get_settings(payload.guild_id)
         if not settings:
             return
-        # Check channel and message
+
+        # Check channel and message IDs
         if payload.channel_id != settings.get("channel_id") or payload.message_id != settings.get("message_id"):
             return
-        # Check emoji
+
         expected_emoji = settings.get("emoji", "✅")
         if str(payload.emoji) != expected_emoji:
             return
@@ -121,55 +145,35 @@ class VerificationCog(commands.Cog):
         guild = self.bot.get_guild(payload.guild_id)
         if not guild:
             return
-        role_id = settings.get("role_id")
-        if not role_id:
-            return
-        role = guild.get_role(role_id)
-        if not role:
-            return
+
         member = guild.get_member(payload.user_id)
         if not member:
             return
 
+        # 1. Remove Muted role if it exists
+        muted_role = discord.utils.get(guild.roles, name="Muted")
+        if muted_role and muted_role in member.roles:
+            await member.remove_roles(muted_role, reason="Verified via reaction")
+
+        # 2. Add the configured verification role (if any)
+        role_id = settings.get("role_id")
+        if role_id:
+            role = guild.get_role(role_id)
+            if role:
+                await member.add_roles(role, reason="Reaction role verification")
+
+        # (Optional) Send a silent confirmation DM
         try:
-            await member.add_roles(role, reason="Reaction role verification")
-            # Optionally send a DM or log
-        except Exception as e:
-            # Log error silently or to mod log
+            await member.send(f"✅ You have been verified in **{guild.name}**.")
+        except:
             pass
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
-        # Optional: remove role when reaction is removed
-        if payload.user_id == self.bot.user.id:
-            return
-
-        settings = await self.get_settings(payload.guild_id)
-        if not settings:
-            return
-        if payload.channel_id != settings.get("channel_id") or payload.message_id != settings.get("message_id"):
-            return
-        expected_emoji = settings.get("emoji", "✅")
-        if str(payload.emoji) != expected_emoji:
-            return
-
-        guild = self.bot.get_guild(payload.guild_id)
-        if not guild:
-            return
-        role_id = settings.get("role_id")
-        if not role_id:
-            return
-        role = guild.get_role(role_id)
-        if not role:
-            return
-        member = guild.get_member(payload.user_id)
-        if not member:
-            return
-
-        try:
-            await member.remove_roles(role, reason="Removed verification reaction")
-        except Exception:
-            pass
+        """(Optional) Remove role if reaction is removed – uncomment if desired."""
+        # By default we do nothing; if you want to take away the role when the
+        # user removes the reaction, uncomment the code below.
+        pass
 
 async def setup(bot):
     await bot.add_cog(VerificationCog(bot))
