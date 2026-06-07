@@ -21,7 +21,7 @@ class VerificationCog(commands.Cog):
             upsert=True
         )
 
-    # ---------- Auto‑mute new members ----------
+    # ---------- Auto‑mute new members with permission setup ----------
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         """Give the Muted role to every new member until they verify."""
@@ -32,14 +32,19 @@ class VerificationCog(commands.Cog):
         # Find or create the Muted role
         muted_role = discord.utils.get(member.guild.roles, name="Muted")
         if not muted_role:
-            # Create the role with send_messages disabled globally
             muted_role = await member.guild.create_role(name="Muted", reason="Auto‑mute new members")
-            # Apply permission overwrites for all text channels
+            # Apply send_messages = False to all categories and text channels
+            for category in member.guild.categories:
+                try:
+                    await category.set_permissions(muted_role, send_messages=False, add_reactions=False)
+                except:
+                    pass
             for channel in member.guild.text_channels:
                 try:
                     await channel.set_permissions(muted_role, send_messages=False, add_reactions=False)
                 except:
                     pass
+
         try:
             await member.add_roles(muted_role, reason="New member – needs verification")
         except:
@@ -94,6 +99,30 @@ class VerificationCog(commands.Cog):
         await self.update_settings(interaction.guild_id, "message_id", msg.id)
         response_embed = EmbedBuilder.success(interaction.user, "Verification message created", f"Posted in {channel.mention}")
         await interaction.response.send_message(embed=response_embed, ephemeral=True)
+
+    @verify.command(name="setup_mute", description="Apply Muted role permissions to all categories and channels (admin only)")
+    @app_commands.default_permissions(administrator=True)
+    async def setup_mute(self, interaction: discord.Interaction):
+        """Manually apply mute permissions to all existing channels (for existing servers)."""
+        muted_role = discord.utils.get(interaction.guild.roles, name="Muted")
+        if not muted_role:
+            await interaction.response.send_message("Muted role not found. It will be created automatically when a new member joins.", ephemeral=True)
+            return
+
+        count = 0
+        for category in interaction.guild.categories:
+            try:
+                await category.set_permissions(muted_role, send_messages=False, add_reactions=False)
+                count += 1
+            except:
+                pass
+        for channel in interaction.guild.text_channels:
+            try:
+                await channel.set_permissions(muted_role, send_messages=False, add_reactions=False)
+                count += 1
+            except:
+                pass
+        await interaction.response.send_message(f"✅ Updated {count} categories/channels with Muted role permissions.", ephemeral=True)
 
     @verify.command(name="disable", description="Disable verification for this server")
     @app_commands.default_permissions(administrator=True)
@@ -162,7 +191,7 @@ class VerificationCog(commands.Cog):
             if role:
                 await member.add_roles(role, reason="Reaction role verification")
 
-        # (Optional) Send a silent confirmation DM
+        # Optional: send a confirmation DM
         try:
             await member.send(f"✅ You have been verified in **{guild.name}**.")
         except:
@@ -170,9 +199,7 @@ class VerificationCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
-        """(Optional) Remove role if reaction is removed – uncomment if desired."""
-        # By default we do nothing; if you want to take away the role when the
-        # user removes the reaction, uncomment the code below.
+        """(Optional) Remove role if reaction is removed – left empty by design."""
         pass
 
 async def setup(bot):
