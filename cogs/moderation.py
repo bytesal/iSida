@@ -9,7 +9,7 @@ from utils.permissions import has_mod_permissions, is_admin
 from utils.logger import log_to_mod_channel
 import asyncio
 
-class ModerationCog(commands.GroupCog, name="moderation"):
+class ModerationCog(commands.Cog):
     """All moderation commands for iSida."""
     
     def __init__(self, bot):
@@ -216,27 +216,6 @@ class ModerationCog(commands.GroupCog, name="moderation"):
         await interaction.response.send_message(embed=embed)
         
         await log_to_mod_channel(self.bot, interaction.guild, "Unlock", interaction.user, None, f"Unlocked #{interaction.channel.name}")
-
-    # ---------- Help Command (dynamic) ----------
-    @app_commands.command(name="help", description="Show all available commands.")
-    async def help(self, interaction: discord.Interaction):
-        """Display a categorized list of all slash commands."""
-        commands = self.bot.tree.get_commands()
-        # Group commands by cog (module)
-        categorized = {}
-        for cmd in commands:
-            cog_name = cmd.module.split('.')[-1] if cmd.module else "General"
-            if cog_name not in categorized:
-                categorized[cog_name] = []
-            categorized[cog_name].append(cmd)
-        
-        embed = discord.Embed(title="📖 iSida Help", description="All slash commands are listed below.", color=discord.Color.blue())
-        for cog, cmds in categorized.items():
-            cmd_list = "\n".join([f"`/{cmd.name}` - {cmd.description}" for cmd in cmds])
-            embed.add_field(name=f"**{cog.title()}**", value=cmd_list or "No commands", inline=False)
-        
-        embed.set_footer(text="Use /command - All commands are slash commands only.")
-        await interaction.response.send_message(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(ModerationCog(bot))
