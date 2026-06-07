@@ -27,7 +27,7 @@ class iSidaBot(commands.Bot):
             intents=intents,
             help_command=None  # Custom help command will be provided
         )
-        self.db = None
+        self.mongo_client = None
         self.anti_spam = None
 
     async def setup_hook(self):
@@ -72,7 +72,8 @@ class iSidaBot(commands.Bot):
 
     async def close(self):
         """Clean up MongoDB connection on shutdown."""
-        await self.mongo_client.close()
+        if self.mongo_client:
+            await self.mongo_client.close()
         await super().close()
 
 # Run bot
