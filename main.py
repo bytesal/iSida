@@ -44,10 +44,11 @@ class iSidaBot(commands.Bot):
         # Initialize anti-spam handler
         self.anti_spam = AntiSpamHandler(self)
         
-        # Load cogs
+        # Load all cogs
         await self.load_extension('cogs.moderation')
         await self.load_extension('cogs.help')
-        logger.info("Loaded cogs")
+        await self.load_extension('cogs.sticky')
+        logger.info("Loaded cogs: moderation, help, sticky")
         
         # Sync slash commands with Discord
         await self.tree.sync()
