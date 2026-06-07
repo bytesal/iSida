@@ -46,6 +46,7 @@ class iSidaBot(commands.Bot):
         
         # Load cogs
         await self.load_extension('cogs.moderation')
+        await self.load_extension('cogs.help')
         logger.info("Loaded cogs")
         
         # Sync slash commands with Discord
