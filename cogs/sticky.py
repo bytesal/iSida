@@ -15,7 +15,6 @@ class StickyCog(commands.Cog):
     @tasks.loop(seconds=10)
     async def check_sticky_messages(self):
         """Background task to verify sticky messages are still present."""
-        # Get all guilds with sticky messages
         async for config in db.database.sticky_messages.find({}):
             guild_id = config["guild_id"]
             channel_id = config["channel_id"]
@@ -30,49 +29,36 @@ class StickyCog(commands.Cog):
                 continue
 
             try:
-                # Try to fetch the sticky message
-                sticky_msg = await channel.fetch_message(message_id)
-                # If it exists but is not the last message? We don't repost if it's not last, but we could.
-                # Optional: if there are new messages after it, we could delete and repost to keep it at bottom.
-                # Let's keep it simple: only repost if missing.
+                await channel.fetch_message(message_id)
             except (discord.NotFound, discord.Forbidden):
                 # Message is missing – repost it
                 embed = discord.Embed(
                     description=content,
-                    color=discord.Color.blue(),
-                    footer={"text": "📌 Sticky message"}
+                    color=discord.Color.blue()
                 )
+                embed.set_footer(text="📌 Sticky message")
                 new_msg = await channel.send(embed=embed)
-                # Update the database with new message ID
                 await db.database.sticky_messages.update_one(
                     {"guild_id": guild_id, "channel_id": channel_id},
                     {"$set": {"message_id": new_msg.id}}
                 )
 
-    @app_commands.command(name="sticky", description="Manage sticky messages in this channel")
-    @app_commands.default_permissions(manage_messages=True)
-    async def sticky_group(self, interaction: discord.Interaction):
-        """Parent command for sticky subcommands (shown in help)."""
-        pass
+    # Slash command group
+    sticky = app_commands.Group(name="sticky", description="Manage sticky messages in this channel")
 
-    @sticky_group.command(name="set", description="Set a sticky message in this channel")
+    @sticky.command(name="set", description="Set a sticky message in this channel")
+    @app_commands.default_permissions(manage_messages=True)
     async def sticky_set(self, interaction: discord.Interaction, message: str):
         """Set a sticky message that will stay at the bottom of the channel."""
-        # Delete existing sticky in this channel if any
         await db.database.sticky_messages.delete_one({
             "guild_id": interaction.guild_id,
             "channel_id": interaction.channel_id
         })
 
-        # Send the sticky message
-        embed = discord.Embed(
-            description=message,
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(description=message, color=discord.Color.blue())
         embed.set_footer(text="📌 Sticky message – do not delete")
         sticky_msg = await interaction.channel.send(embed=embed)
 
-        # Store in database
         await db.database.sticky_messages.insert_one({
             "guild_id": interaction.guild_id,
             "channel_id": interaction.channel_id,
@@ -80,16 +66,16 @@ class StickyCog(commands.Cog):
             "content": message
         })
 
-        embed_response = EmbedBuilder.success(
+        response_embed = EmbedBuilder.success(
             interaction.user,
             "Sticky message set",
             f"Message: {message}\nChannel: {interaction.channel.mention}"
         )
-        await interaction.response.send_message(embed=embed_response, ephemeral=True)
+        await interaction.response.send_message(embed=response_embed, ephemeral=True)
 
-    @sticky_group.command(name="remove", description="Remove the sticky message from this channel")
+    @sticky.command(name="remove", description="Remove the sticky message from this channel")
+    @app_commands.default_permissions(manage_messages=True)
     async def sticky_remove(self, interaction: discord.Interaction):
-        """Delete the sticky message in this channel."""
         config = await db.database.sticky_messages.find_one({
             "guild_id": interaction.guild_id,
             "channel_id": interaction.channel_id
@@ -99,7 +85,6 @@ class StickyCog(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Try to delete the message
         try:
             channel = interaction.channel
             msg = await channel.fetch_message(config["message_id"])
@@ -115,9 +100,8 @@ class StickyCog(commands.Cog):
         embed = EmbedBuilder.success(interaction.user, "Sticky message removed.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @sticky_group.command(name="view", description="View the current sticky message in this channel")
+    @sticky.command(name="view", description="View the current sticky message in this channel")
     async def sticky_view(self, interaction: discord.Interaction):
-        """Show the sticky message content."""
         config = await db.database.sticky_messages.find_one({
             "guild_id": interaction.guild_id,
             "channel_id": interaction.channel_id
