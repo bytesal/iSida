@@ -199,15 +199,7 @@ MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/
 # 4. Add environment variables in Railway dashboard
 ```
 
-### 5️⃣ Invite the Bot
-
-Use this OAuth2 URL (replace `YOUR_CLIENT_ID`):
-
-```
-https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=6711012374&scope=bot+applications.commands
-```
-
-### 6️⃣ Verify the Bot is Running
+### 5️⃣ Verify the Bot is Running
 
 - Check Railway logs for `Logged in as iSida#...`
 - Type `/help` in your server
