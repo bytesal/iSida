@@ -47,8 +47,9 @@ class iSidaBot(commands.Bot):
         await self.load_extension('cogs.moderation')
         await self.load_extension('cogs.help')
         await self.load_extension('cogs.sticky')
-        await self.load_extension('cogs.verification')   # <-- NEW COG
-        logger.info("Loaded cogs: moderation, help, sticky, verification")
+        await self.load_extension('cogs.verification')
+        await self.load_extension('cogs.transcripts')
+        logger.info("Loaded cogs: moderation, help, sticky, verification, transcripts")
         
         await self.tree.sync()
         logger.info("Synced slash commands")
